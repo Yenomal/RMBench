@@ -1,12 +1,14 @@
-<h1 align="center">RMBench</h1>
+<h1 align="center">RMBench: Memory-Dependent Manipulation Benchmark</h1>
 
-RMBench: Memory-Dependent Robotic Manipulation Benchmark with Insights into Policy Design<br>
-[PDF (pre-release)](https://github.com/RMBench/RMBench.github.io/blob/main/pre_release_version.pdf). The official release is coming Soon.
+RMBench: Memory-Dependent Robotic Manipulation Benchmark with Insights into Policy Design. <i>Under Review</i>, [PDF (pre-release)](https://github.com/RMBench/RMBench.github.io/blob/main/pre_release_version.pdf). The official release is coming soon.
+
+> Tianxing Chen*, Yuran Wang*, Mingleyang Li*, Yan Qin*, Hao Shi, Zixuan Li,
+Yifan Hu, Yingsheng Zhang, Kaixuan Wang, Yue Chen, Hongcheng Wang, Renjing Xu,
+Ruihai Wu, Yao Mu, Yaodong Yang, Hao Dong†, Ping Luo†
+
+# 🧑🏻‍💻 RMBench Usage
 
 > This project is built upon [RoboTwin 2.0](https://github.com/robotwin-Platform/RoboTwin), and you can seamlessly transfer your policy code between the two projects.
-
-
-# 🧑🏻‍💻 RMBench Usage 
 
 ## 1. Installation
 First, prepare a conda environment.
