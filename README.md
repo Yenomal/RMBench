@@ -1,10 +1,8 @@
 <h1 align="center">RMBench: Memory-Dependent Manipulation Benchmark</h1>
 
-RMBench: Memory-Dependent Robotic Manipulation Benchmark with Insights into Policy Design. <i>Under Review</i>, [PDF (pre-release)](https://github.com/RMBench/RMBench.github.io/blob/main/pre_release_version.pdf). The official release is coming soon.
+RMBench: Memory-Dependent Robotic Manipulation Benchmark with Insights into Policy Design. <i>Under Review</i>, [PDF](https://github.com/RMBench/RMBench.github.io/blob/main/pre_release_version.pdf) | [arXiv](https://arxiv.org/abs/2603.01229) | [website](https://rmbench.github.io/)
 
-> Tianxing Chen*, Yuran Wang*, Mingleyang Li*, Yan Qin*, Hao Shi, Zixuan Li,
-Yifan Hu, Yingsheng Zhang, Kaixuan Wang, Yue Chen, Hongcheng Wang, Renjing Xu,
-Ruihai Wu, Yao Mu, Yaodong Yang, Hao Dong†, Ping Luo†
+> Tianxing Chen*, Yuran Wang*, Mingleyang Li*, Yan Qin*, Hao Shi, Zixuan Li, Yifan Hu, Yingsheng Zhang, Kaixuan Wang, Yue Chen, Hongcheng Wang, Renjing Xu, Ruihai Wu, Yao Mu, Yaodong Yang, Hao Dong†, Ping Luo†
 
 # 🧑🏻‍💻 RMBench Usage
 
@@ -75,6 +73,15 @@ bash collect_data.sh ${task_name} ${task_config} ${gpu_id}
 If you find our work useful, please consider citing:
 
 ```
+@misc{chen2026rmbenchmemorydependentroboticmanipulation,
+      title={RMBench: Memory-Dependent Robotic Manipulation Benchmark with Insights into Policy Design}, 
+      author={Tianxing Chen and Yuran Wang and Mingleyang Li and Yan Qin and Hao Shi and Zixuan Li and Yifan Hu and Yingsheng Zhang and Kaixuan Wang and Yue Chen and Hongcheng Wang and Renjing Xu and Ruihai Wu and Yao Mu and Yaodong Yang and Hao Dong and Ping Luo},
+      year={2026},
+      eprint={2603.01229},
+      archivePrefix={arXiv},
+      primaryClass={cs.RO},
+      url={https://arxiv.org/abs/2603.01229}, 
+}
 ```
 
 # 🏷️ License
