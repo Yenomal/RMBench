@@ -35,7 +35,7 @@ To download the assets, run the following command. If you encounter any rate-lim
 bash script/_download_assets.sh
 ```
 
-## 3. Download 
+## 3. Download Data
 
 Please run the following command to download all data.
 
@@ -73,14 +73,11 @@ bash collect_data.sh ${task_name} ${task_config} ${gpu_id}
 If you find our work useful, please consider citing:
 
 ```
-@misc{chen2026rmbenchmemorydependentroboticmanipulation,
-      title={RMBench: Memory-Dependent Robotic Manipulation Benchmark with Insights into Policy Design}, 
-      author={Tianxing Chen and Yuran Wang and Mingleyang Li and Yan Qin and Hao Shi and Zixuan Li and Yifan Hu and Yingsheng Zhang and Kaixuan Wang and Yue Chen and Hongcheng Wang and Renjing Xu and Ruihai Wu and Yao Mu and Yaodong Yang and Hao Dong and Ping Luo},
-      year={2026},
-      eprint={2603.01229},
-      archivePrefix={arXiv},
-      primaryClass={cs.RO},
-      url={https://arxiv.org/abs/2603.01229}, 
+@article{chen2026rmbench,
+  title={RMBench: Memory-Dependent Robotic Manipulation Benchmark with Insights into Policy Design},
+  author={Chen, Tianxing and Wang, Yuran and Li, Mingleyang and Qin, Yan and Shi, Hao and Li, Zixuan and Hu, Yifan and Zhang, Yingsheng and Wang, Kaixuan and Chen, Yue and others},
+  journal={arXiv preprint arXiv:2603.01229},
+  year={2026}
 }
 ```
 
