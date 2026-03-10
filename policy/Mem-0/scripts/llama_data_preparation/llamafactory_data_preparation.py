@@ -1,3 +1,4 @@
+import argparse
 import cv2
 import os
 import numpy as np
@@ -11,10 +12,25 @@ from tqdm import tqdm
 workspace = os.path.dirname(os.path.abspath(__file__))
 Mem0_workspace = os.path.join(workspace, "..", "..")
 
-# parameter need to be set
-lerobot_dataset_path = f"{Mem0_workspace}/lerobot_datasets/battery_try"  # change it to your own lerobot dataset path
-episode_start_id = 0
-episode_end_id = 50
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Prepare LLaMA-Factory format data from LeRobot dataset.")
+    parser.add_argument(
+        "--lerobot_dataset_path",
+        type=str,
+        default=os.path.join(Mem0_workspace, "lerobot_datasets", "battery_try"),
+        help="Path to the LeRobot dataset.",
+    )
+    parser.add_argument("--episode_start_id", type=int, default=0, help="Start episode id (inclusive).")
+    parser.add_argument("--episode_end_id", type=int, default=50, help="End episode id (exclusive).")
+    return parser.parse_args()
+
+
+# parameter need to be set (overridden by CLI args when run from automation script)
+_args = parse_args()
+lerobot_dataset_path = _args.lerobot_dataset_path
+episode_start_id = _args.episode_start_id
+episode_end_id = _args.episode_end_id
 
 def save_image(img, path):
     # save image

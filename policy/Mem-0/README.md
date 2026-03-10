@@ -95,25 +95,41 @@ cd LlamaFactory
 pip install -e ".[torch,metrics]" --no-build-isolation
 ```
 
-#### 2. Prepare Fine-Tuning Data
+#### 2. Prepare Fine-Tuning Data, Train, and Merge LoRA
 
-execute following scripts to prepare llama-factory type data. The data will be saved into ```llamafactory_data/``` directory.
+You can either run the pipeline with one script or follow steps 2, 3, and 4 manually.
 
-```python
-python scripts/llama_data_preparation/llamafactory_data_preparation.py
+**Run with script (recommended)**
 
-# Note:
-# modify **lerobot_dataset_path** in the file to specify the dataset.
-# This script shold be executed in 'mem0' conda env.
+Edit the "User configuration" section at the top of `run_planning_pipeline.sh`, then from the Mem-0 directory:
+
+```bash
+cd policy/Mem-0
+chmod +x run_planning_pipeline.sh
+./run_planning_pipeline.sh
 ```
 
-Then, copy the files (including one .json file and one filefolder containing images) in your ```llamafactory_data/XXX``` directory and move them to ```LlamaFactory/data```.
+Required variables: `LEROBOT_DATASET_PATH`, `LLAMAFACTORY_ROOT`, `BASE_OUTPUT_DIR`. Optional: `EXPORT_DIR`, `EPISODE_START_ID`, `EPISODE_END_ID`, and training/merge options. To run only specific steps: `STEPS="copy train merge" ./run_planning_pipeline.sh`
 
-Then in ```LlamaFactory/data/dataset_info.json```, add the following part:
+<details>
+<summary><strong>Follow steps 2, 3, 4 in order (manual)</strong></summary>
+
+**Step 2. Prepare Fine-Tuning Data**
+
+Run the data preparation script (in the `mem0` conda env). Output goes to `llamafactory_data/`.
+
+```bash
+python scripts/llama_data_preparation/llamafactory_data_preparation.py \
+  --lerobot_dataset_path /path/to/lerobot_datasets/xxx \
+  --episode_start_id 0 \
+  --episode_end_id 50
+```
+
+Copy the generated `.json` file and the images folder from `llamafactory_data/XXX` to `LlamaFactory/data`. Then add an entry to `LlamaFactory/data/dataset_info.json`:
 
 ```
-  "dataset_name": { # you can change dataset_name
-    "file_name": "XXXX.json", # this part should be aligned to your llamafactory_data
+  "dataset_name": {
+    "file_name": "XXXX.json",
     "formatting": "sharegpt",
     "columns": {
       "messages": "messages",
@@ -129,11 +145,11 @@ Then in ```LlamaFactory/data/dataset_info.json```, add the following part:
   }
 ```
 
-#### 3. train
+**Step 3. Train**
 
-In ```LLaMA-Factory/examples/train_lora```, add a new file called ```qwen3_vl_lora_sft.yaml```, then write following codes into the file.
+In `LLaMA-Factory/examples/train_lora`, create `qwen3_vl_lora_sft.yaml`:
 
-```python
+```yaml
 ### model
 model_name_or_path: checkpoints/Qwen3-VL-8B-Instruct
 image_max_pixels: 262144
@@ -148,7 +164,7 @@ lora_rank: 8
 lora_target: all
 
 ### dataset
-dataset: cover_blocks_real_data # change this to your own label defined in LlamaFactory/data/dataset_info.json
+dataset: cover_blocks_real_data
 template: qwen3_vl_nothink
 cutoff_len: 2048
 max_samples: 1000
@@ -157,13 +173,13 @@ preprocessing_num_workers: 16
 dataloader_num_workers: 8
 
 ### output
-output_dir: XXX/XXXX_sft_lora # change it according to your own demands, the final name should ended with '_sft_lora'
+output_dir: XXX/XXXX_sft_lora
 logging_steps: 10
 save_steps: 500
 plot_loss: true
 overwrite_output_dir: true
 save_only_model: false
-report_to: wandb  # choices: [none, wandb, tensorboard, swanlab, mlflow]
+report_to: wandb
 
 ### train
 per_device_train_batch_size: 16
@@ -177,40 +193,37 @@ ddp_timeout: 180000000
 resume_from_checkpoint: null
 ```
 
-Then run the code to begin the training.
+Then run:
 
-```
+```bash
 llamafactory-cli train examples/train_lora/qwen3_vl_lora_sft.yaml
 ```
 
-#### 4. merge lora
+**Step 4. Merge LoRA**
 
-After training, merge action should be taken to get final merged model weights.
+In `LLaMA-Factory/examples/merge_lora`, create `qwen3_vl_lora_sft.yaml`:
 
-In ```LLaMA-Factory/examples/merge_lora```, add a new file called ```qwen3_vl_lora_sft.yaml```, then write following codes into the file.
-
-```python
-### Note: DO NOT use quantized model or quantization_bit when merging lora adapters
-
+```yaml
 ### model
 model_name_or_path: checkpoints/Qwen3-VL-8B-Instruct
-adapter_name_or_path: XXX/XXXX_sft_lora  # change, same as 'output_dir' in step 3.
+adapter_name_or_path: XXX/XXXX_sft_lora
 template: qwen3_vl_nothink
-trust_remote_code: true 
+trust_remote_code: true
 
 ### export
-export_dir: /save/final/weights/path  # change
-Qwen3-VL-8B-Instruct-Cover-Blocks-Real-Data
+export_dir: /save/final/weights/path
 export_size: 5
 export_device: cpu
 export_legacy_format: false
 ```
 
-Then run the code to merge.
+Then run:
 
-```
+```bash
 llamafactory-cli export examples/merge_lora/qwen3_vl_lora_sft.yaml
 ```
+
+</details>
 
 #### 5. load the model using vLLM
 
