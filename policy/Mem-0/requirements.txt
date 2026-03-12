@@ -33,3 +33,4 @@ isort==5.13.0
 pre-commit
 pyyaml
 filelock
+h5py==3.16.0

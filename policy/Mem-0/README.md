@@ -87,12 +87,16 @@ In the Planning Module, we fine-tune the vision–language model (Qwen3-VL-8B-In
 
 ```python
 # open new conda env
-conda create -n llama_factory python=3.10
+conda create -n llama_factory python=3.11
 conda activate llama_factory
 
 git clone --depth 1 https://github.com/hiyouga/LlamaFactory.git
 cd LlamaFactory
-pip install -e ".[torch,metrics]" --no-build-isolation
+pip install -e .
+pip install -r requirements/metrics.txt
+# wandb login
+pip install wandb
+wandb login
 ```
 
 #### 2. Prepare Fine-Tuning Data, Train, and Merge LoRA
@@ -105,8 +109,8 @@ Edit the "User configuration" section at the top of `run_planning_pipeline.sh`, 
 
 ```bash
 cd policy/Mem-0
-chmod +x run_planning_pipeline.sh
-./run_planning_pipeline.sh
+
+bash ./run_planning_pipeline.sh
 ```
 
 Required variables: `LEROBOT_DATASET_PATH`, `LLAMAFACTORY_ROOT`, `BASE_OUTPUT_DIR`. Optional: `EXPORT_DIR`, `EPISODE_START_ID`, `EPISODE_END_ID`, and training/merge options. To run only specific steps: `STEPS="copy train merge" ./run_planning_pipeline.sh`

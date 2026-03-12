@@ -61,8 +61,11 @@ high_level_finetune_data = []
 finetune_dataset_path = f"{Mem0_workspace}/llamafactory_data/{llamafactory_dataset_name}"
 os.makedirs(finetune_dataset_path, exist_ok=True)
 
-for episode_id in range(episode_start_id, episode_end_id):
-    print(f"Processing episode {episode_id}...")
+total_episodes = episode_end_id - episode_start_id
+print(f"\n[LlamaFactory Data Preparation] Total episodes to process: {total_episodes} (episode_id {episode_start_id} ~ {episode_end_id - 1})\n", flush=True)
+
+for idx, episode_id in enumerate(range(episode_start_id, episode_end_id), start=1):
+    print(f"[ {idx}/{total_episodes} ] Processing episode {episode_id} ...", flush=True)
     # create episode folder
     episode_folder_path = f"{finetune_dataset_path}/{llamafactory_dataset_name}_images/episode_{episode_id}"
     os.makedirs(episode_folder_path, exist_ok=True)
@@ -82,7 +85,7 @@ for episode_id in range(episode_start_id, episode_end_id):
     
     key_frame_id = 1
     
-    for frame_id in tqdm(range(episode_length), desc=f"Processing episode {episode_id} frames"):
+    for frame_id in tqdm(range(episode_length), desc=f"Episode {idx}/{total_episodes} (id={episode_id}) frames"):
         if frame_id == 0:
             frame_information = {"messages": [], "images": []}
             # system prompt message
@@ -146,3 +149,5 @@ for episode_id in range(episode_start_id, episode_end_id):
 # save high_level_finetune_data to json file
 with open(f"{finetune_dataset_path}/{llamafactory_dataset_name}_high_level_finetune_data.json", "w") as f:
     json.dump(high_level_finetune_data, f, indent=2, ensure_ascii=False)
+
+print(f"\n[LlamaFactory Data Preparation] Done. Processed {total_episodes} episodes (episode_id {episode_start_id} ~ {episode_end_id - 1}).", flush=True)

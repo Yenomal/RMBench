@@ -9,6 +9,8 @@
 #
 # Optional: run specific steps (prepare, copy, train, merge):
 #   STEPS="copy train merge" ./run_planning_pipeline.sh
+# Steps are auto-skipped if already done: prepare when JSON exists under llamafactory_data/;
+# copy when the same JSON exists under LlamaFactory/data/.
 #
 
 set -e
@@ -18,17 +20,17 @@ set -e
 # -----------------------------------------------------------------------------
 
 # LeRobot dataset path (required). Example: /path/to/Mem-0/lerobot_datasets/battery_try
-LEROBOT_DATASET_PATH=""
+LEROBOT_DATASET_PATH="/home/wangyuran/RMBench/policy/Mem-0/lerobot_datasets/battery_try"
 
 # Episode range for data preparation (inclusive start, exclusive end)
 EPISODE_START_ID=0
 EPISODE_END_ID=50
 
 # LLaMA-Factory repository root (required). Example: /path/to/LlamaFactory
-LLAMAFACTORY_ROOT=""
+LLAMAFACTORY_ROOT="/home/wangyuran/RMBench/policy/Mem-0/LlamaFactory"
 
 # Base directory for LoRA output and merged model (required). Script creates {dataset_name}_sft_lora under it.
-BASE_OUTPUT_DIR=""
+BASE_OUTPUT_DIR="/home/wangyuran/RMBench/policy/Mem-0/checkpoints"
 
 # Merged model output directory (optional). If empty, uses BASE_OUTPUT_DIR/Qwen3-VL-8B-Instruct-{dataset_name}
 EXPORT_DIR=""
@@ -61,6 +63,38 @@ DATA_PREP_SCRIPT="${SCRIPTS_DIR}/llama_data_preparation/llamafactory_data_prepar
 PIPELINE_SCRIPT="${SCRIPTS_DIR}/planning_train_pipeline.py"
 
 # -----------------------------------------------------------------------------
+# Progress bar helpers
+# -----------------------------------------------------------------------------
+# Usage: print_step_progress <current> <total> <step_name>
+print_step_progress() {
+  local current=$1
+  local total=$2
+  local name=$3
+  local bar_width=24
+  local filled=$((current * bar_width / total))
+  [[ $filled -gt $bar_width ]] && filled=$bar_width
+  local empty=$((bar_width - filled))
+  local filled_chars
+  local empty_chars
+  filled_chars=$(printf '%*s' "$filled" '' | tr ' ' '=')
+  empty_chars=$(printf '%*s' "$empty" '' | tr ' ' '-')
+  printf "\n"
+  printf "======================================================================\n"
+  printf "  [%s%s] Step %d/%d: %s\n" "$filled_chars" "$empty_chars" "$current" "$total" "$name"
+  printf "======================================================================\n"
+  printf "\n"
+}
+
+# Count total steps that will run (prepare = 1 step, copy+train+merge = 1 step)
+count_steps() {
+  local n=0
+  [[ " $STEPS " == *" prepare "* ]] && ((n++))
+  [[ " $STEPS " == *" copy "* || " $STEPS " == *" train "* || " $STEPS " == *" merge "* ]] && ((n++))
+  [[ $n -eq 0 ]] && n=1
+  echo $n
+}
+
+# -----------------------------------------------------------------------------
 # Checks
 # -----------------------------------------------------------------------------
 if [[ -z "$LEROBOT_DATASET_PATH" ]]; then
@@ -84,20 +118,36 @@ if [[ -z "$BASE_OUTPUT_DIR" ]]; then
   exit 1
 fi
 
+# Dataset name (from LeRobot path) for skip detection
+DATASET_NAME=$(basename "${LEROBOT_DATASET_PATH%/}")
+
+TOTAL_STEPS=$(count_steps)
+CURRENT_STEP=0
+
 # -----------------------------------------------------------------------------
-# Step 1: Data preparation (runs in mem0 env)
+# Step 1: Data preparation (runs in mem0 env). Skip if output already exists.
 # -----------------------------------------------------------------------------
 if [[ " $STEPS " == *" prepare "* ]]; then
-  echo "[Step 1] Data preparation (conda env: $CONDA_ENV_MEM0)..."
-  conda run -n "$CONDA_ENV_MEM0" python "$DATA_PREP_SCRIPT" \
-    --lerobot_dataset_path "$LEROBOT_DATASET_PATH" \
-    --episode_start_id "$EPISODE_START_ID" \
-    --episode_end_id "$EPISODE_END_ID"
-  echo "[Step 1] Done."
+  PREPARE_JSON="${MEM0_DIR}/llamafactory_data/${DATASET_NAME}/${DATASET_NAME}_high_level_finetune_data.json"
+  if [[ -f "$PREPARE_JSON" ]]; then
+    CURRENT_STEP=$((CURRENT_STEP + 1))
+    print_step_progress "$CURRENT_STEP" "$TOTAL_STEPS" "Data preparation (already done, skipping)"
+    echo "[Step 1] Output already exists: $PREPARE_JSON — skipping."
+  else
+    CURRENT_STEP=$((CURRENT_STEP + 1))
+    EPISODE_COUNT=$((EPISODE_END_ID - EPISODE_START_ID))
+    print_step_progress "$CURRENT_STEP" "$TOTAL_STEPS" "Data preparation [episodes $EPISODE_START_ID~$((EPISODE_END_ID - 1)), $EPISODE_COUNT total] (conda: $CONDA_ENV_MEM0)"
+    PYTHONUNBUFFERED=1 conda run --no-capture-output -n "$CONDA_ENV_MEM0" python -u "$DATA_PREP_SCRIPT" \
+      --lerobot_dataset_path "$LEROBOT_DATASET_PATH" \
+      --episode_start_id "$EPISODE_START_ID" \
+      --episode_end_id "$EPISODE_END_ID"
+    echo "[Step 1] Done."
+  fi
 fi
 
 # -----------------------------------------------------------------------------
 # Steps 2–4: Copy, train, merge (via Python pipeline script; train/merge use llama_factory env)
+# Skip copy if data already present in LLaMA-Factory.
 # -----------------------------------------------------------------------------
 RUN_STEPS=""
 for s in copy train merge; do
@@ -107,8 +157,16 @@ for s in copy train merge; do
 done
 RUN_STEPS="${RUN_STEPS# }"
 
+# If copy is requested but already done (JSON exists in LlamaFactory/data), drop copy from RUN_STEPS
+COPY_JSON="${LLAMAFACTORY_ROOT}/data/${DATASET_NAME}_high_level_finetune_data.json"
+if [[ -n "$RUN_STEPS" ]] && [[ " $RUN_STEPS " == *" copy "* ]] && [[ -f "$COPY_JSON" ]]; then
+  echo "[Copy] Already done: $COPY_JSON exists — skipping copy step."
+  RUN_STEPS=$(echo " $RUN_STEPS " | sed 's/ copy / /' | tr -s ' ' | xargs)
+fi
+
 if [[ -n "$RUN_STEPS" ]]; then
-  echo "[Steps 2–4] Copy to LLaMA-Factory, train, merge (as specified: $RUN_STEPS)..."
+  CURRENT_STEP=$((CURRENT_STEP + 1))
+  print_step_progress "$CURRENT_STEP" "$TOTAL_STEPS" "Copy to LLaMA-Factory, Train, Merge ($RUN_STEPS)"
   ARGS=(
     --lerobot_dataset_path "$LEROBOT_DATASET_PATH"
     --llamafactory_root "$LLAMAFACTORY_ROOT"
@@ -133,4 +191,7 @@ if [[ -n "$RUN_STEPS" ]]; then
   echo "[Steps 2–4] Done."
 fi
 
-echo "Pipeline finished."
+echo ""
+echo "========================================================================"
+echo "  Pipeline finished."
+echo "========================================================================"

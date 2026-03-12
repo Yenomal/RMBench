@@ -34,7 +34,7 @@ USER_CONFIG = {
     "report_to": "wandb",
 }
 
-DEFAULT_MODEL_NAME = "checkpoints/Qwen3-VL-8B-Instruct"
+BASE_MODEL_DIR_NAME = "Qwen3-VL-8B-Instruct"
 TEMPLATE = "qwen3_vl_nothink"
 TRAIN_YAML_NAME = "qwen3_vl_lora_sft.yaml"
 MERGE_YAML_NAME = "qwen3_vl_lora_sft.yaml"
@@ -59,10 +59,14 @@ def get_images_folder_name(dataset_name: str) -> str:
 
 
 def run_cmd(cmd: list[str], cwd: Path | None = None, env_name: str | None = None) -> None:
+    env = None
     if env_name:
-        cmd = ["conda", "run", "-n", env_name] + cmd
+        # --no-capture-output: 不捕获子进程输出，让 train 等步骤的日志实时打印到终端
+        cmd = ["conda", "run", "--no-capture-output", "-n", env_name] + cmd
+        # 子进程继承 PYTHONUNBUFFERED，避免 Python 缓冲导致日志延迟
+        env = {**os.environ, "PYTHONUNBUFFERED": "1"}
     try:
-        subprocess.run(cmd, cwd=cwd, check=True)
+        subprocess.run(cmd, cwd=cwd, check=True, env=env)
     except subprocess.CalledProcessError as e:
         print(f"Command failed: {cmd}", file=sys.stderr)
         sys.exit(e.returncode)
@@ -147,11 +151,18 @@ def step_train(cfg: dict, dataset_name: str) -> str:
     if not base_out:
         raise SystemExit("base_output_dir is not set. Set it in run_planning_pipeline.sh.")
     lf_root = Path(cfg["llamafactory_root"])
+    # Use absolute path so LLaMA-Factory (running with cwd=LlamaFactory) loads local checkpoint, not HuggingFace
+    base_model_path = Path(base_out).resolve() / BASE_MODEL_DIR_NAME
+    if not base_model_path.is_dir():
+        raise SystemExit(
+            f"Base model dir not found: {base_model_path}\n"
+            "Download Qwen3-VL-8B-Instruct and place it there, or set base_output_dir in run_planning_pipeline.sh."
+        )
     output_dir = Path(base_out).resolve() / f"{dataset_name}_sft_lora"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     train_config = {
-        "model_name_or_path": DEFAULT_MODEL_NAME,
+        "model_name_or_path": str(base_model_path),
         "image_max_pixels": 262144,
         "video_max_pixels": 16384,
         "trust_remote_code": True,
@@ -215,10 +226,11 @@ def step_merge(cfg: dict, adapter_path: str, dataset_name: str) -> None:
     )
     export_dir = Path(export_dir).resolve()
     lf_root = Path(cfg["llamafactory_root"])
+    base_model_path = Path(cfg["base_output_dir"]).resolve() / BASE_MODEL_DIR_NAME
 
     merge_config = [
         "# DO NOT use quantized model or quantization_bit when merging lora adapters",
-        "model_name_or_path: " + DEFAULT_MODEL_NAME,
+        "model_name_or_path: " + str(base_model_path),
         "adapter_name_or_path: " + adapter_path,
         "template: " + TEMPLATE,
         "trust_remote_code: true",
