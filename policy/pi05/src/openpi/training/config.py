@@ -579,6 +579,33 @@ _CONFIGS = [
         batch_size=64,
         fsdp_devices=1,  # refer line 359
     ),
+    TrainConfig(
+        name="pi05_aloha_common_autogaze_base",
+        model=pi0_config.Pi0Config(pi05=True, use_common_visual_encoder=True),
+        data=LeRobotAlohaDataConfig(
+            repo_id="your_repo_id",
+            repack_transforms=_transforms.Group(inputs=[
+                _transforms.RepackTransform({
+                    "images": {
+                        "cam_high": "observation.images.cam_high",
+                        "cam_left_wrist": "observation.images.cam_left_wrist",
+                        "cam_right_wrist": "observation.images.cam_right_wrist",
+                    },
+                    "head_history": "observation.head_history",
+                    "state": "observation.state",
+                    "actions": "action",
+                    "prompt": "prompt",
+                })
+            ]),
+            base_config=DataConfig(
+                prompt_from_task=True,
+            ),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=20_000,
+        batch_size=64,
+        fsdp_devices=1,
+    ),
     # pi0_base by lora
     TrainConfig(
         name="pi0_base_aloha_robotwin_lora",

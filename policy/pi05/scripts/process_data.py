@@ -8,6 +8,9 @@ import cv2
 import argparse
 import yaml, json
 
+DEFAULT_HEAD_HISTORY_LEN = 8
+DEFAULT_HEAD_HISTORY_SIZE = (224, 224)
+
 
 def load_hdf5(dataset_path):
     if not os.path.isfile(dataset_path):
@@ -51,7 +54,18 @@ def get_task_config(task_name):
     return args
 
 
-def data_transform(path, episode_num, save_path):
+def build_head_history(frames, history_len):
+    history = []
+    for frame_idx in range(len(frames)):
+        begin_idx = max(0, frame_idx - history_len + 1)
+        clip = frames[begin_idx : frame_idx + 1]
+        if len(clip) < history_len:
+            clip = [clip[0]] * (history_len - len(clip)) + clip
+        history.append(np.stack(clip, axis=0))
+    return np.asarray(history, dtype=np.uint8)
+
+
+def data_transform(path, episode_num, save_path, history_len=DEFAULT_HEAD_HISTORY_LEN):
     begin = 0
     floders = os.listdir(path)
     # assert episode_num <= len(floders), "data num not enough"
@@ -83,6 +97,7 @@ def data_transform(path, episode_num, save_path):
         cam_high = []
         cam_right_wrist = []
         cam_left_wrist = []
+        head_history_source = []
         left_arm_dim = []
         right_arm_dim = []
 
@@ -107,6 +122,7 @@ def data_transform(path, episode_num, save_path):
                 camera_high = cv2.imdecode(np.frombuffer(camera_high_bits, np.uint8), cv2.IMREAD_COLOR)
                 camera_high_resized = cv2.resize(camera_high, (640, 480))
                 cam_high.append(camera_high_resized)
+                head_history_source.append(cv2.resize(camera_high, DEFAULT_HEAD_HISTORY_SIZE))
 
                 camera_right_wrist_bits = image_dict["right_camera"][j]
                 camera_right_wrist = cv2.imdecode(np.frombuffer(camera_right_wrist_bits, np.uint8), cv2.IMREAD_COLOR)
@@ -132,6 +148,7 @@ def data_transform(path, episode_num, save_path):
             obs.create_dataset("qpos", data=np.array(qpos))
             obs.create_dataset("left_arm_dim", data=np.array(left_arm_dim))
             obs.create_dataset("right_arm_dim", data=np.array(right_arm_dim))
+            obs.create_dataset("head_history", data=build_head_history(head_history_source, history_len), compression="gzip")
             image = obs.create_group("images")
             cam_high_enc, len_high = images_encoding(cam_high)
             cam_right_wrist_enc, len_right = images_encoding(cam_right_wrist)
@@ -161,11 +178,18 @@ if __name__ == "__main__":
         default=50,
         help="Number of episodes to process (e.g., 50)",
     )
+    parser.add_argument(
+        "--history_len",
+        type=int,
+        default=DEFAULT_HEAD_HISTORY_LEN,
+        help="Number of head-camera history frames to materialize for each step.",
+    )
     args = parser.parse_args()
 
     task_name = args.task_name
     setting = args.setting
     expert_data_num = args.expert_data_num
+    history_len = args.history_len
 
     load_dir = os.path.join("../../data", str(task_name), str(setting))
 
@@ -177,4 +201,5 @@ if __name__ == "__main__":
         load_dir,
         expert_data_num,
         target_dir,
+        history_len=history_len,
     )

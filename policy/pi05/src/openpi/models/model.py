@@ -93,6 +93,8 @@ class Observation(Generic[ArrayT]):
     image_masks: dict[str, at.Bool[ArrayT, "*b"]]
     # Low-dimensional robot state.
     state: at.Float[ArrayT, "*b s"]
+    # Optional head-camera history, typically used by external visual encoders.
+    head_history: at.Float[ArrayT, "*b t h w c"] | None = None
 
     # Tokenized prompt.
     tokenized_prompt: at.Int[ArrayT, "*b l"] | None = None
@@ -118,10 +120,17 @@ class Observation(Generic[ArrayT]):
                 data["image"][key] = data["image"][key].astype(np.float32) / 255.0 * 2.0 - 1.0
             elif hasattr(data["image"][key], "dtype") and data["image"][key].dtype == torch.uint8:
                 data["image"][key] = data["image"][key].to(torch.float32).permute(0, 3, 1, 2) / 255.0 * 2.0 - 1.0
+
+        if "head_history" in data and data["head_history"] is not None:
+            if data["head_history"].dtype == np.uint8:
+                data["head_history"] = data["head_history"].astype(np.float32) / 255.0 * 2.0 - 1.0
+            elif hasattr(data["head_history"], "dtype") and data["head_history"].dtype == torch.uint8:
+                data["head_history"] = data["head_history"].to(torch.float32) / 255.0 * 2.0 - 1.0
         return cls(
             images=data["image"],
             image_masks=data["image_mask"],
             state=data["state"],
+            head_history=data.get("head_history"),
             tokenized_prompt=data.get("tokenized_prompt"),
             tokenized_prompt_mask=data.get("tokenized_prompt_mask"),
             token_ar_mask=data.get("token_ar_mask"),
@@ -201,6 +210,7 @@ def preprocess_observation(
         images=out_images,
         image_masks=out_masks,
         state=observation.state,
+        head_history=observation.head_history,
         tokenized_prompt=observation.tokenized_prompt,
         tokenized_prompt_mask=observation.tokenized_prompt_mask,
         token_ar_mask=observation.token_ar_mask,
@@ -243,7 +253,42 @@ class BaseModelConfig(abc.ABC):
     def load_pytorch(self, train_config, weight_path: str):
         logger.info(f"train_config: {train_config}")
         model = pi0_pytorch.PI0Pytorch(config=train_config.model)
-        safetensors.torch.load_model(model, weight_path)
+
+        if not getattr(train_config.model, "use_common_visual_encoder", False):
+            safetensors.torch.load_model(model, weight_path)
+            return model
+
+        state_dict = safetensors.torch.load_file(weight_path)
+
+        skipped_prefixes = (
+            "paligemma_with_expert.paligemma.model.vision_tower.",
+            "paligemma_with_expert.paligemma.model.multi_modal_projector.",
+        )
+        filtered_state_dict = {
+            key: value for key, value in state_dict.items() if not any(key.startswith(prefix) for prefix in skipped_prefixes)
+        }
+
+        missing_keys, unexpected_keys = model.load_state_dict(filtered_state_dict, strict=False)
+
+        allowed_missing_prefixes = skipped_prefixes + ("common_visual_prefix.",)
+
+        invalid_missing = [
+            key for key in missing_keys if not any(key.startswith(prefix) for prefix in allowed_missing_prefixes)
+        ]
+        if invalid_missing:
+            raise RuntimeError(
+                "Unexpected missing keys while loading partial PyTorch checkpoint: "
+                + ", ".join(invalid_missing[:20])
+            )
+        if unexpected_keys:
+            raise RuntimeError(
+                "Unexpected keys while loading partial PyTorch checkpoint: "
+                + ", ".join(unexpected_keys[:20])
+            )
+
+        logger.info(f"Loaded partial PyTorch checkpoint from {weight_path}")
+        logger.info(f"Skipped prefixes: {skipped_prefixes}")
+        logger.info(f"Missing keys: {missing_keys}")
         return model
 
     @abc.abstractmethod

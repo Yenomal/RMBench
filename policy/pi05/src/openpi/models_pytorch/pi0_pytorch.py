@@ -9,6 +9,7 @@ import torch.nn.functional as F  # noqa: N812
 import openpi.models.gemma as _gemma
 from openpi.models_pytorch.gemma_pytorch import PaliGemmaWithExpertModel
 import openpi.models_pytorch.preprocessing_pytorch as _preprocessing
+from projects.maevla.pi05_autogaze import CommonVisualPrefixAdapter
 
 
 def get_safe_dtype(target_dtype, device_type):
@@ -86,6 +87,7 @@ class PI0Pytorch(nn.Module):
         super().__init__()
         self.config = config
         self.pi05 = config.pi05
+        self.use_common_visual_encoder = getattr(config, "use_common_visual_encoder", False)
 
         paligemma_config = _gemma.get_config(config.paligemma_variant)
         action_expert_config = _gemma.get_config(config.action_expert_variant)
@@ -99,6 +101,14 @@ class PI0Pytorch(nn.Module):
 
         self.action_in_proj = nn.Linear(32, action_expert_config.width)
         self.action_out_proj = nn.Linear(action_expert_config.width, 32)
+        self.common_visual_prefix = (
+            CommonVisualPrefixAdapter(
+                out_dim=paligemma_config.width,
+                history_len=getattr(config, "common_visual_history_len", 8),
+            )
+            if self.use_common_visual_encoder
+            else None
+        )
 
         if self.pi05:
             self.time_mlp_in = nn.Linear(action_expert_config.width, action_expert_config.width)
@@ -109,7 +119,8 @@ class PI0Pytorch(nn.Module):
             self.action_time_mlp_out = nn.Linear(action_expert_config.width, action_expert_config.width)
 
         torch.set_float32_matmul_precision("high")
-        self.sample_actions = torch.compile(self.sample_actions, mode="max-autotune")
+        if not self.use_common_visual_encoder:
+            self.sample_actions = torch.compile(self.sample_actions, mode="max-autotune")
 
         # Initialize gradient checkpointing flag
         self.gradient_checkpointing_enabled = False
@@ -147,6 +158,8 @@ class PI0Pytorch(nn.Module):
 
     def _apply_checkpoint(self, func, *args, **kwargs):
         """Helper method to apply gradient checkpointing if enabled."""
+        if len(args) == 0:
+            return func(**kwargs)
         if self.gradient_checkpointing_enabled and self.training:
             return torch.utils.checkpoint.checkpoint(
                 func, *args, use_reentrant=False, preserve_rng_state=False, **kwargs
@@ -160,14 +173,7 @@ class PI0Pytorch(nn.Module):
 
     def _preprocess_observation(self, observation, *, train=True):
         """Helper method to preprocess observation."""
-        observation = _preprocessing.preprocess_observation_pytorch(observation, train=train)
-        return (
-            list(observation.images.values()),
-            list(observation.image_masks.values()),
-            observation.tokenized_prompt,
-            observation.tokenized_prompt_mask,
-            observation.state,
-        )
+        return _preprocessing.preprocess_observation_pytorch(observation, train=train)
 
     def sample_noise(self, shape, device):
         return torch.normal(
@@ -184,7 +190,12 @@ class PI0Pytorch(nn.Module):
         return time.to(dtype=torch.float32, device=device)
 
     def embed_prefix(
-        self, images, img_masks, lang_tokens, lang_masks
+        self,
+        images,
+        image_masks,
+        lang_tokens,
+        lang_masks,
+        head_history=None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Embed images with SigLIP and language tokens with embedding layer to prepare
         for PaliGemma transformer processing.
@@ -193,21 +204,30 @@ class PI0Pytorch(nn.Module):
         pad_masks = []
         att_masks = []
 
-        # Process images
-        for img, img_mask in zip(images, img_masks, strict=True):
+        if self.use_common_visual_encoder:
 
-            def image_embed_func(img):
-                return self.paligemma_with_expert.embed_image(img)
+            def common_visual_embed_func():
+                return self.common_visual_prefix(images, image_masks, head_history)
 
-            img_emb = self._apply_checkpoint(image_embed_func, img)
-
-            bsize, num_img_embs = img_emb.shape[:2]
-
+            img_emb, visual_pad_mask = self._apply_checkpoint(common_visual_embed_func)
             embs.append(img_emb)
-            pad_masks.append(img_mask[:, None].expand(bsize, num_img_embs))
+            pad_masks.append(visual_pad_mask)
+            att_masks += [0] * img_emb.shape[1]
+        else:
+            for img, img_mask in zip(images.values(), image_masks.values(), strict=True):
 
-            # Create attention masks so that image tokens attend to each other
-            att_masks += [0] * num_img_embs
+                def image_embed_func(img):
+                    return self.paligemma_with_expert.embed_image(img)
+
+                img_emb = self._apply_checkpoint(image_embed_func, img)
+
+                bsize, num_img_embs = img_emb.shape[:2]
+
+                embs.append(img_emb)
+                pad_masks.append(img_mask[:, None].expand(bsize, num_img_embs))
+
+                # Create attention masks so that image tokens attend to each other
+                att_masks += [0] * num_img_embs
 
         # Process language tokens
         def lang_embed_func(lang_tokens):
@@ -315,7 +335,13 @@ class PI0Pytorch(nn.Module):
 
     def forward(self, observation, actions, noise=None, time=None) -> Tensor:
         """Do a full training forward pass and compute the loss (batch_size x num_steps x num_motors)"""
-        images, img_masks, lang_tokens, lang_masks, state = self._preprocess_observation(observation, train=True)
+        observation = self._preprocess_observation(observation, train=True)
+        images = observation.images
+        image_masks = observation.image_masks
+        lang_tokens = observation.tokenized_prompt
+        lang_masks = observation.tokenized_prompt_mask
+        state = observation.state
+        head_history = getattr(observation, "head_history", None)
 
         if noise is None:
             noise = self.sample_noise(actions.shape, actions.device)
@@ -327,7 +353,13 @@ class PI0Pytorch(nn.Module):
         x_t = time_expanded * noise + (1 - time_expanded) * actions
         u_t = noise - actions
 
-        prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(images, img_masks, lang_tokens, lang_masks)
+        prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(
+            images,
+            image_masks,
+            lang_tokens,
+            lang_masks,
+            head_history=head_history,
+        )
         suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = self.embed_suffix(state, x_t, time)
         if (
             self.paligemma_with_expert.paligemma.language_model.layers[0].self_attn.q_proj.weight.dtype
@@ -380,9 +412,21 @@ class PI0Pytorch(nn.Module):
             actions_shape = (bsize, self.config.action_horizon, self.config.action_dim)
             noise = self.sample_noise(actions_shape, device)
 
-        images, img_masks, lang_tokens, lang_masks, state = self._preprocess_observation(observation, train=False)
+        observation = self._preprocess_observation(observation, train=False)
+        images = observation.images
+        image_masks = observation.image_masks
+        lang_tokens = observation.tokenized_prompt
+        lang_masks = observation.tokenized_prompt_mask
+        state = observation.state
+        head_history = getattr(observation, "head_history", None)
 
-        prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(images, img_masks, lang_tokens, lang_masks)
+        prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(
+            images,
+            image_masks,
+            lang_tokens,
+            lang_masks,
+            head_history=head_history,
+        )
         prefix_att_2d_masks = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
         prefix_position_ids = torch.cumsum(prefix_pad_masks, dim=1) - 1
 

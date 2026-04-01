@@ -31,6 +31,10 @@ class Pi0Config(_model.BaseModelConfig):
     pi05: bool = False
     # This config option is not used directly by the model, but it is read by the ModelTransformFactory.
     discrete_state_input: bool = None  # type: ignore
+    # PyTorch-only switch to replace the original PaliGemma visual tower with the shared common visual encoder.
+    use_common_visual_encoder: bool = False
+    # Number of head-camera history frames expected by the common visual encoder.
+    common_visual_history_len: int = 8
 
     def __post_init__(self):
         if self.max_token_len is None:
@@ -55,6 +59,14 @@ class Pi0Config(_model.BaseModelConfig):
     def inputs_spec(self, *, batch_size: int = 1) -> tuple[_model.Observation, _model.Actions]:
         image_spec = jax.ShapeDtypeStruct([batch_size, *_model.IMAGE_RESOLUTION, 3], jnp.float32)
         image_mask_spec = jax.ShapeDtypeStruct([batch_size], jnp.bool_)
+        head_history_spec = (
+            jax.ShapeDtypeStruct(
+                [batch_size, self.common_visual_history_len, *_model.IMAGE_RESOLUTION, 3],
+                jnp.float32,
+            )
+            if self.use_common_visual_encoder
+            else None
+        )
 
         with at.disable_typechecking():
             observation_spec = _model.Observation(
@@ -69,6 +81,7 @@ class Pi0Config(_model.BaseModelConfig):
                     "right_wrist_0_rgb": image_mask_spec,
                 },
                 state=jax.ShapeDtypeStruct([batch_size, self.action_dim], jnp.float32),
+                head_history=head_history_spec,
                 tokenized_prompt=jax.ShapeDtypeStruct([batch_size, self.max_token_len], jnp.int32),
                 tokenized_prompt_mask=jax.ShapeDtypeStruct([batch_size, self.max_token_len], bool),
             )

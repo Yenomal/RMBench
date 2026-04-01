@@ -75,6 +75,9 @@ class AlohaInputs(transforms.DataTransformFn):
             "state": data["state"],
         }
 
+        if "head_history" in data:
+            inputs["head_history"] = data["head_history"]
+
         # Actions are only available during training.
         if "actions" in data:
             actions = np.asarray(data["actions"])
@@ -172,6 +175,18 @@ def _decode_aloha(data: dict, *, adapt_to_pi: bool = False) -> dict:
 
     images = data["images"]
     images_dict = {name: convert_image(img) for name, img in images.items()}
+
+    if "head_history" in data:
+        history = np.asarray(data["head_history"])
+        if history.ndim != 4:
+            raise ValueError(f"head_history must have shape [T, C, H, W] or [T, H, W, C], got {history.shape}")
+        if np.issubdtype(history.dtype, np.floating):
+            history = np.clip(255 * history, 0, 255).astype(np.uint8)
+        if history.shape[1] == 3:
+            history = einops.rearrange(history, "t c h w -> t h w c")
+        elif history.shape[-1] != 3:
+            raise ValueError(f"head_history must contain an RGB channel dimension, got {history.shape}")
+        data["head_history"] = history
 
     data["images"] = images_dict
     data["state"] = state
