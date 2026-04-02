@@ -106,7 +106,7 @@ def class_decorator(task_name):
 def eval_function_decorator(policy_name, model_name, conda_env=None):
     # conda_env is abandoned
     try:
-        policy_model = importlib.import_module(f"{policy_name}.client_adapter")
+        policy_model = importlib.import_module(policy_name)
         return getattr(policy_model, model_name)
     except ImportError as e:
         raise e
