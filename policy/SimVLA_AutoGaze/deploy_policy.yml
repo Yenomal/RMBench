@@ -1,0 +1,27 @@
+# Basic experiment configuration
+policy_name: null
+task_name: null
+task_config: null
+ckpt_setting: null
+seed: null
+instruction_type: unseen
+
+# AutoGaze + SimVLA RMBench configuration
+checkpoint_path: null
+smolvlm_model_path: null
+norm_stats_path: null
+device: "cuda"
+execute_horizon: 5
+integration_steps: 10
+expected_state_dim: 14
+camera_keys:
+  - head_camera
+  - left_camera
+  - right_camera
+autogaze_model_path: "nvidia/AutoGaze"
+autogaze_siglip_model_path: "google/siglip2-base-patch16-224"
+autogaze_history_len: 8
+autogaze_projector_hidden_size: 1536
+autogaze_gazing_ratio: 0.1
+autogaze_task_loss_requirement:
+
